@@ -109,6 +109,12 @@ variable "enable_grafana" {
   description = "Create an Azure Managed Grafana instance linked to the Prometheus workspace."
 }
 
+variable "enable_argocd" {
+  type        = bool
+  default     = true
+  description = "Install the Microsoft.ArgoCD cluster extension in the argocd namespace with Redis HA disabled for the small lab node pool."
+}
+
 variable "enable_container_registry" {
   type        = bool
   default     = true
@@ -119,6 +125,24 @@ variable "enable_key_vault" {
   type        = bool
   default     = false
   description = "Create a Key Vault, its private endpoint subnet, private endpoint, private DNS resources and role assignments, and enable the secrets store CSI driver add-on. Disabled by default to reduce lab costs."
+}
+
+variable "enable_local_dns" {
+  type        = bool
+  default     = true
+  description = "Enable AKS-managed LocalDNS in Required mode on the shared node pool. Requires Kubernetes 1.31+, Azure Linux, and a VM with at least 4 vCPUs. Changing the profile reimages existing nodes."
+}
+
+variable "enable_keda" {
+  type        = bool
+  default     = true
+  description = "Enable the AKS-managed KEDA add-on. Applications must define ScaledObject or ScaledJob resources; node autoscaling remains disabled."
+}
+
+variable "enable_vpa" {
+  type        = bool
+  default     = true
+  description = "Enable the AKS-managed Vertical Pod Autoscaler. Applications must define VerticalPodAutoscaler resources; node autoscaling remains disabled."
 }
 
 variable "enable_diagnostic_settings" {

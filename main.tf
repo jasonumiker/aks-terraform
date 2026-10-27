@@ -17,6 +17,78 @@ locals {
   key_vault_administrator_role_id = "00482a5a-887f-4fb3-b363-3b7fe8e74483"
   acr_name                        = "acr${replace(var.name_prefix, "-", "")}${local.suffix}"
   grafana_admin_role_id           = "22926164-76b3-42b3-bc55-97df8dab3e41"
+
+  network_profile = {
+    network_plugin      = "azure"
+    network_plugin_mode = "overlay"
+    network_dataplane   = "cilium"
+    load_balancer_sku   = "standard"
+    outbound_type       = "loadBalancer"
+    load_balancer_profile = {
+      managed_outbound_ips = {
+        count = 1
+      }
+    }
+  }
+
+  ingress_profile = {
+    gateway_api = {
+      installation = "Standard"
+    }
+    web_app_routing = {
+      enabled = true
+      gateway_api_implementations = {
+        app_routing_istio = {
+          mode = "Enabled"
+        }
+      }
+      nginx = {
+        default_ingress_controller_type = "None"
+      }
+    }
+  }
+
+  local_dns_overrides = {
+    "." = {
+      query_logging                   = "Error"
+      protocol                        = "PreferUDP"
+      forward_destination             = "ClusterCoreDNS"
+      forward_policy                  = "Sequential"
+      max_concurrent                  = 1000
+      cache_duration_in_seconds       = 3600
+      serve_stale_duration_in_seconds = 3600
+      serve_stale                     = "Immediate"
+    }
+    "cluster.local" = {
+      query_logging                   = "Error"
+      protocol                        = "ForceTCP"
+      forward_destination             = "ClusterCoreDNS"
+      forward_policy                  = "Sequential"
+      max_concurrent                  = 1000
+      cache_duration_in_seconds       = 3600
+      serve_stale_duration_in_seconds = 3600
+      serve_stale                     = "Immediate"
+    }
+  }
+
+  local_dns_profile = {
+    mode               = var.enable_local_dns ? "Required" : "Disabled"
+    kube_dns_overrides = local.local_dns_overrides
+    vnet_dns_overrides = merge(local.local_dns_overrides, {
+      "." = merge(local.local_dns_overrides["."], {
+        forward_destination = "VnetDNS"
+      })
+    })
+  }
+
+  workload_auto_scaler_profile = {
+    keda = {
+      enabled = var.enable_keda
+    }
+    vertical_pod_autoscaler = {
+      enabled = var.enable_vpa
+    }
+  }
 }
 
 resource "azapi_resource" "resource_group" {
@@ -164,37 +236,6 @@ resource "azapi_resource" "virtual_network" {
   response_export_values = []
 }
 
-resource "azapi_resource" "public_ip_nat_gateway" {
-  type      = "Microsoft.Network/publicIPAddresses@2024-05-01"
-  name      = "pip-nat-${var.name_prefix}-${local.suffix}"
-  location  = azapi_resource.resource_group.location
-  parent_id = azapi_resource.resource_group.id
-  body = {
-    sku   = { name = "Standard", tier = "Regional" }
-    zones = ["1", "2", "3"]
-    properties = {
-      publicIPAllocationMethod = "Static"
-      publicIPAddressVersion   = "IPv4"
-    }
-  }
-  response_export_values = []
-}
-
-resource "azapi_resource" "nat_gateway" {
-  type      = "Microsoft.Network/natGateways@2024-05-01"
-  name      = "nat-${var.name_prefix}-${local.suffix}"
-  location  = azapi_resource.resource_group.location
-  parent_id = azapi_resource.resource_group.id
-  body = {
-    sku = { name = "Standard" }
-    properties = {
-      idleTimeoutInMinutes = 4
-      publicIpAddresses    = [{ id = azapi_resource.public_ip_nat_gateway.id }]
-    }
-  }
-  response_export_values = []
-}
-
 # Subnets are created serially to avoid concurrent-write conflicts on the VNet.
 resource "azapi_resource" "subnet_api_server" {
   type      = "Microsoft.Network/virtualNetworks/subnets@2024-05-01"
@@ -221,7 +262,7 @@ resource "azapi_resource" "subnet_cluster" {
   body = {
     properties = {
       addressPrefix = var.cluster_subnet_prefix
-      natGateway    = { id = azapi_resource.nat_gateway.id }
+      natGateway    = null
     }
   }
   response_export_values = []
@@ -236,7 +277,7 @@ resource "azapi_resource" "subnet_system" {
   body = {
     properties = {
       addressPrefix = var.system_subnet_prefix
-      natGateway    = { id = azapi_resource.nat_gateway.id }
+      natGateway    = null
     }
   }
   response_export_values = []
@@ -498,6 +539,7 @@ module "aks_standard" {
     enable_auto_scaling = false
     node_taints         = []
     vnet_subnet_id      = azapi_resource.subnet_cluster.id
+    local_dns_profile   = local.local_dns_profile
     upgrade_settings = {
       max_surge = "33%"
     }
@@ -507,6 +549,8 @@ module "aks_standard" {
     mode               = "Manual"
     default_node_pools = "None"
   }
+
+  workload_auto_scaler_profile = local.workload_auto_scaler_profile
 
   enable_rbac            = true
   disable_local_accounts = true
@@ -534,24 +578,14 @@ module "aks_standard" {
     enabled = true
   }
 
-  ingress_profile = {
-    web_app_routing = {
-      enabled = true
-    }
-  }
+  ingress_profile = local.ingress_profile
 
   auto_upgrade_profile = {
     upgrade_channel         = "stable"
     node_os_upgrade_channel = "NodeImage"
   }
 
-  network_profile = {
-    network_plugin      = "azure"
-    network_plugin_mode = "overlay"
-    network_dataplane   = "cilium"
-    load_balancer_sku   = "standard"
-    outbound_type       = "userAssignedNATGateway"
-  }
+  network_profile = local.network_profile
 
   addon_profile_key_vault_secrets_provider = var.enable_key_vault ? {
     enabled = true
@@ -608,6 +642,31 @@ module "aks_standard" {
     azapi_resource.network_contributor,
     azapi_resource.subnet_system,
   ]
+}
+
+resource "azapi_resource" "argocd" {
+  count = var.enable_argocd ? 1 : 0
+
+  type      = "Microsoft.KubernetesConfiguration/extensions@2023-05-01"
+  name      = "argocd"
+  parent_id = module.aks_standard.resource_id
+  body = {
+    properties = {
+      extensionType           = "Microsoft.ArgoCD"
+      autoUpgradeMinorVersion = true
+      releaseTrain            = "Stable"
+      scope = {
+        cluster = {
+          releaseNamespace = "argocd"
+        }
+      }
+      configurationSettings = {
+        "redis-ha.enabled"                        = "false"
+        "configs.params.application\\.namespaces" = "argocd"
+      }
+    }
+  }
+  response_export_values = []
 }
 
 # Control-plane logs to Log Analytics (kube-audit-admin avoids the cost of full kube-audit)
