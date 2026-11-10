@@ -514,6 +514,9 @@ module "aks_standard" {
   location         = azapi_resource.resource_group.location
   parent_id        = azapi_resource.resource_group.id
   enable_telemetry = var.enable_telemetry
+  tags = {
+    donotturnoff = var.donotturnoff
+  }
 
   sku = {
     name = "Base"
@@ -530,11 +533,13 @@ module "aks_standard" {
   }
 
   default_agent_pool = {
-    name                = "systempool"
+    name                = "systemamd"
     count_of            = var.system_node_count
     vm_size             = var.system_node_vm_size
     availability_zones  = ["1", "2", "3"]
     os_sku              = "AzureLinux"
+    os_disk_type        = "Managed"
+    os_disk_size_gb     = 64
     type                = "VirtualMachineScaleSets"
     enable_auto_scaling = false
     node_taints         = []

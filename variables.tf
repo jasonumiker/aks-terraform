@@ -10,6 +10,12 @@ variable "name_prefix" {
   description = "Prefix used for resource names."
 }
 
+variable "donotturnoff" {
+  type        = string
+  default     = "yes"
+  description = "Value of the donotturnoff tag applied by the AKS module to the cluster, node pool, and monitoring resources."
+}
+
 variable "vnet_address_space" {
   type        = string
   default     = "172.19.0.0/16"
@@ -47,8 +53,8 @@ variable "system_node_count" {
 
 variable "system_node_vm_size" {
   type        = string
-  default     = "Standard_D4ds_v5"
-  description = "System pool VM size. Choose an AKS-supported non-B-series SKU with at least 4 vCPUs and 4 GiB memory, available in all three zones."
+  default     = "Standard_D4as_v5"
+  description = "Shared system pool VM size, paired with a 64-GiB managed OS disk. Choose an AKS-supported non-B-series x86 SKU with at least 4 vCPUs and enough memory for pod requests, available in all three zones."
 }
 
 variable "private_endpoints_subnet_prefix" {

@@ -3,6 +3,18 @@
 This Terraform configuration creates a Standard AKS cluster with a fixed-size,
 shared system/workload node pool. It retains support for cluster stop/start.
 
+## Shared node pool
+
+The default `systemamd` pool uses two `Standard_D4as_v5` nodes, each with
+4 vCPUs, 16 GiB RAM, and an explicitly sized **64-GiB managed OS disk**.
+The VM size remains configurable with `system_node_vm_size`; node autoscaling
+remains disabled. Choose a size with enough memory for pod requests, not just
+observed usage.
+
+Managed OS disks remain billable while the cluster is stopped. Monitor
+container image/log growth and disk pressure. Changing OS disk type or size
+requires replacing the node pool rather than updating it in place.
+
 ## Outbound networking and idle costs
 
 The cluster uses Standard Load Balancer outbound access with one AKS-managed
@@ -68,7 +80,7 @@ rather than omitting the profile and allowing version-dependent AKS defaults.
 `Required` mode fails deployment if LocalDNS prerequisites are not met.
 
 LocalDNS requires Kubernetes 1.31+, Azure Linux or Ubuntu 22.04+, and a node VM
-with at least four vCPUs. The default Azure Linux / `Standard_D4ds_v5` pool meets
+with at least four vCPUs. The default Azure Linux / `Standard_D4as_v5` pool meets
 the OS and CPU requirements. **Changing LocalDNS on an existing node pool causes
 a node reimage**: plan for disruption and use suitable workload replicas and pod
 disruption budgets. Custom DNS servers and network rules must allow DNS over
